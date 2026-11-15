@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Emberline Yard — a three.js tactical FPS</title>
+<script type="importmap">
+{ "imports": { "three": "./three.module.min.js" } }
+</script>
+<style>
+  :root {
+    --canvas: #14161a; --surface: #1e2228; --hairline: #2c323a;
+    --ink: #e9e6df; --muted: #98a0a8; --accent: #f0a830; --ember: #f97316; --ash: #67e8f9;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-readout: ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--canvas); color: var(--ink); font-family: var(--font-ui); }
+  #game, #game canvas { position: fixed; inset: 0; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); --sp: 4px; }
+  #crosshair i { position: absolute; background: var(--ink); opacity: .9; }
+  #crosshair i:nth-child(1) { left: 10px; top: calc(11px - var(--sp) - 7px); width: 2px; height: 7px; }
+  #crosshair i:nth-child(2) { left: 10px; top: calc(11px + var(--sp)); width: 2px; height: 7px; }
+  #crosshair i:nth-child(3) { top: 10px; left: calc(11px - var(--sp) - 7px); height: 2px; width: 7px; }
+  #crosshair i:nth-child(4) { top: 10px; left: calc(11px + var(--sp)); height: 2px; width: 7px; }
+  #crosshair b { position: absolute; left: 10px; top: 10px; width: 2px; height: 2px; background: var(--ink); }
+
+  #hitmarker { position: fixed; left: 50%; top: 50%; width: 30px; height: 30px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; transition: opacity 90ms linear; }
+  #hitmarker.on { opacity: 1; }
+  #hitmarker i { position: absolute; background: var(--accent); }
+  #hitmarker.kill i { background: #ef4444; }
+  #hitmarker i:nth-child(1) { left: 14px; top: 0; width: 2px; height: 9px; }
+  #hitmarker i:nth-child(2) { left: 14px; bottom: 0; width: 2px; height: 9px; }
+  #hitmarker i:nth-child(3) { top: 14px; left: 0; height: 2px; width: 9px; }
+  #hitmarker i:nth-child(4) { top: 14px; right: 0; height: 2px; width: 9px; }
+
+  #topbar { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 18px; align-items: baseline; font-family: var(--font-readout); }
+  #timer { font-size: 30px; font-weight: 600; }
+  #timer.urgent { color: #ef4444; }
+  #score { font-size: 15px; color: var(--muted); }
+  #score b { color: var(--ink); }
+  #alive { font-size: 13px; color: var(--muted); }
+
+  #minimap { position: fixed; top: 16px; left: 16px; width: 168px; height: 168px; border: 1px solid var(--hairline); border-radius: 4px; }
+
+  #health { position: fixed; left: 24px; bottom: 24px; width: 220px; }
+  #health .row { display: flex; gap: 10px; align-items: baseline; font-family: var(--font-readout); }
+  #hp-num { font-size: 44px; line-height: 1; }
+  #armor-num { font-size: 12px; color: var(--muted); }
+  #hp-track { height: 6px; background: var(--hairline); margin-top: 6px; border-radius: 3px; overflow: hidden; }
+  #hp-bar { height: 100%; width: 100%; background: #4ade80; }
+
+  #ammo { position: fixed; right: 28px; bottom: 24px; text-align: right; font-family: var(--font-readout); }
+  #ammo .mag { font-size: 52px; line-height: 1; }
+  #ammo-res { font-size: 16px; color: var(--muted); }
+  #weapon-name, #nades { font-size: 13px; color: var(--muted); }
+  #money { position: fixed; right: 28px; bottom: 118px; font-family: var(--font-readout); font-size: 20px; color: var(--accent); }
+
+  #round-msg { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); font-size: 14px; color: var(--muted); text-align: center; max-width: 640px; }
+  #feed { position: fixed; top: 200px; right: 16px; text-align: right; font-family: var(--font-readout); font-size: 12px; display: grid; gap: 4px; }
+  #feed .ember { color: var(--ember); } #feed .ash { color: var(--ash); }
+
+  #plant-bar { position: fixed; left: 50%; top: 58%; transform: translateX(-50%); width: 260px; text-align: center; font-family: var(--font-readout); font-size: 12px; }
+  #plant-bar[hidden] { display: none; }
+  #plant-fill { height: 6px; background: var(--accent); margin-top: 4px; }
+
+  .overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(20, 22, 26, 0.86); z-index: 5; }
+  .overlay[hidden] { display: none; }
+  .panel { width: min(480px, 100%); padding: 32px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 4px; }
+  .panel h1 { margin: 0 0 12px; font-size: 26px; letter-spacing: .02em; }
+  .panel h1 em { color: var(--ember); font-style: normal; }
+  .panel p { color: var(--muted); line-height: 1.55; font-size: 14px; }
+  .panel button { margin-top: 16px; padding: 12px 20px; background: var(--accent); color: #14161a; border: 0; border-radius: 4px; font: 600 15px var(--font-ui); cursor: pointer; }
+  .panel button:hover { filter: brightness(1.1); }
+
+  #buy { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(20, 22, 26, 0.72); z-index: 4; pointer-events: auto; }
+  #buy[hidden] { display: none; }
+  #buy .panel { width: min(560px, 100%); }
+  #buy header { display: flex; justify-content: space-between; align-items: baseline; }
+  #buy h2 { margin: 0; font-size: 20px; }
+  #buy-money { font-family: var(--font-readout); color: var(--accent); font-size: 18px; }
+  #buy-timer { color: var(--muted); font-size: 13px; }
+  #buy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+  .buy-item { display: grid; gap: 2px; text-align: left; padding: 10px 12px; background: #262b31; border: 1px solid var(--hairline); border-radius: 4px; color: var(--ink); cursor: pointer; font-family: var(--font-ui); }
+  .buy-item:hover { border-color: var(--accent); }
+  .buy-item b { font-size: 14px; }
+  .buy-item span { font-size: 12px; color: #4a3a12; }
+  .buy-item.owned b, .buy-item.owned span { color: #14161a; }
+  .buy-item i { font-style: normal; font-family: var(--font-readout); color: #7a4d00; font-size: 13px; }
+  .buy-item.cant { opacity: .45; }
+  .buy-item.owned { border-color: var(--ember); }
+  #buy-close { margin-top: 14px; padding: 10px 18px; background: var(--hairline); color: var(--ink); border: 0; border-radius: 4px; cursor: pointer; font: 600 14px var(--font-ui); }
+  #buy p.hint { font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="hud">
+  <canvas id="minimap" width="168" height="168"></canvas>
+  <div id="topbar"><span id="timer">1:40</span><span id="score">EMBER <b>0</b> — <b>0</b> ASH · R1</span><span id="alive">ALIVE ● 4 vs 5 ●</span></div>
+  <div id="round-msg"></div>
+  <div id="feed"></div>
+  <div id="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
+  <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+  <div id="plant-bar" hidden><span>PLANTING SPIKE…</span><div id="plant-fill" style="width:0%"></div></div>
+  <div id="health">
+    <div class="row"><span id="hp-num">100</span><span id="armor-num">ARMOR 0</span></div>
+    <div id="hp-track"><div id="hp-bar"></div></div>
+  </div>
+  <div id="ammo">
+    <div><span class="mag" id="ammo-mag">12</span> <span id="ammo-res">/ 48</span></div>
+    <div id="weapon-name">Kestrel-9 · PISTOL</div>
+    <div id="nades">◉ 0</div>
+  </div>
+  <div id="money">$800</div>
+</div>
+
+<div id="buy" hidden>
+  <div class="panel">
+    <header><h2>Buy phase — Kestrel Yard</h2><span id="buy-money">$800</span></header>
+    <div id="buy-timer">9s to lock in</div>
+    <div id="buy-grid"></div>
+    <p class="hint">Keys 1–5 weapons · 6 frag grenade · 7 plated vest · B close. Accuracy beats fire-rate: the Longbow-7 rewards a still aim, the Needle-50 punishes a moving one.</p>
+    <button id="buy-close">Lock in (B)</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="panel">
+    <h1 id="overlay-title">EMBERLINE YARD</h1>
+    <p id="overlay-body"></p>
+    <button id="overlay-btn">Enter the yard</button>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
